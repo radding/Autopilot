@@ -1,0 +1,1 @@
+export type Logger = Pick<Console, "warn" | "error" | "info" | "trace" | "debug">;

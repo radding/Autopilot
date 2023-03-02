@@ -1,0 +1,4 @@
+#ifndef COMBINEDSTREAM_H
+#define COMBINEDSTREAM_H
+
+#endif
