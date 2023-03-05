@@ -39,6 +39,7 @@ export interface StreamCommand extends Command {
 export interface ISerialInterface {
 	on(responseCodes: ResponseCode | ResponseCode[], cb: (resp: RawResponse) => void): void;
 	send(cmd: Command, timeOutMS?: number): Promise<RawResponse>;
+	stream(cmd: StreamCommand): Promise<stream.Readable>;
 
 }
 
@@ -140,6 +141,7 @@ export class SerialInterface implements ISerialInterface {
 		return new Promise<RawResponse>((res, rej) => {
 			const array = new Uint8Array([cmd.command, messageID!, cmd.payload.length, ...cmd.payload, EOL_CHAR]);
 			this.port.write(array, undefined, (err) => {
+				console.log(`waiting ${timeOutMS}ms before failing out!`);
 				setTimeout(rej, timeOutMS, new Error("timeout waiting for serial reply"))
 				if (err) {
 					return rej(err);

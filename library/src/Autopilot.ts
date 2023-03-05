@@ -3,7 +3,7 @@ import { CommandCode } from "./commands";
 import { Logger } from "./logger";
 import { LoggerTransformer } from "./LogTransformer";
 import { ResponseCode } from "./responses";
-import { RawResponse, ResponseTransformer, SerialInterface } from "./Serial";
+import { ISerialInterface, RawResponse, ResponseTransformer, SerialInterface } from "./Serial";
 import stream from "stream";
 import { AckResponse } from "./cmds/BeginPilotCmd";
 import { PingResponse } from "./cmds/PingCmd";
@@ -24,7 +24,7 @@ interface AutopilotClientProperties {
 	serialConfig?: {
 		port?: string; // The Port or path to the USB device
 		serialPort?: stream.Duplex; // The Duplex Stream that supports the underlying communication.
-		serialInterface?: SerialInterface; // The actual serial interface that manages the stream
+		serialInterface?: ISerialInterface; // The actual serial interface that manages the stream
 		baud?: number // The baud rate for the communication defaults to 9600
 	},
 	logger?: Logger; // Optional logger. defaults to the standard console
@@ -32,7 +32,7 @@ interface AutopilotClientProperties {
 }
 
 export class AutopilotClient {
-	private serial: SerialInterface;
+	private serial: ISerialInterface;
 	private isReady: boolean = false;
 	private missedHeartBeats = 0;
 	private logger: Logger;
@@ -67,6 +67,8 @@ export class AutopilotClient {
 			logger.trace("Module is ready!");
 			this.isReady = true;
 		});
+		
+		this.testConnectivity(300).then(isConnected => this.isReady = true);
 
 		if (!config.disableHeartbeat) {
 			setTimeout(this.beginHeartbeat.bind(this), 500, 100);
@@ -128,5 +130,18 @@ export class AutopilotClient {
 		setTimeout(() => {
 			this.beginHeartbeat(timeMS);
 		}, timeMS);
+	}
+	
+	public async testConnectivity(initialTimeout: number, maxAttempts: number = 4, attemptNumber: number = 0): Promise<boolean>{
+		if (maxAttempts === attemptNumber) {
+			return false;
+		}
+		try {
+			const resp = await this._send(new PingResponse(), initialTimeout);
+			return resp.ack;
+		} catch(e) {
+			this.logger.error(`caught: ${e}`);
+			return this.testConnectivity(initialTimeout + Math.round(Math.pow(1.3, attemptNumber)), maxAttempts, attemptNumber + 1);
+		}
 	}
 }

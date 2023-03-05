@@ -5,3 +5,4 @@ export * from "./cmds/HeadingStream";
 export * from "./cmds/PingCmd";
 export * from "./cmds/SetDesiredBearingCmd";
 export * from "./Serial";
+export * from "./expBackoffSerial";
