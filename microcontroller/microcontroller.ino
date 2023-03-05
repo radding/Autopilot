@@ -1,14 +1,17 @@
 #include <QMC5883LCompass.h>
 #include <stdio.h>
 #include <Stepper.h>
+#include <SoftwareSerial.h>
 
 #include "statemachine.h"
 #include "Command.h"
 #include "commandHandler.h"
 #include "converters.h"
 #include "pid.h"
+#include "CombinedStream.h"
 
-#define INTERRUPT_PIN 2
+#define RX_PIN 2
+#define TX_PIN 3
 
 QMC5883LCompass compass;
 
@@ -38,18 +41,20 @@ volatile short readBytes;
 const int stepsPerRevolution = 200;
 Stepper myStepper = Stepper(stepsPerRevolution, 7, 6, 5, 4);
 
+SoftwareSerial bluetoothSerial(RX_PIN, TX_PIN);
+
 void setup()
 {
 	Serial.begin(9600);
+	bluetoothSerial.begin(9600);
+	SetBlueTooth(bluetoothSerial);
 
-	pinMode(INTERRUPT_PIN, OUTPUT);
 	Wire.begin();
 	compass.init();
 
 	// TODO: Set in eeprom
 	compass.setCalibration(-157, 382, -1595, 0, -395, 0);
 	compass.setSmoothing(10, true);
-	attachInterrupt(digitalPinToInterrupt(INTERRUPT_PIN), handleCommand, RISING);
 	pilot.begin(&input, &output, &setpoint, p, i, d);
 
 	pilot.setOutputLimits(-360, 360);
@@ -75,10 +80,12 @@ int getCompassHeading()
 
 void loop()
 {
-	// myStepper.step(200);
-	// delay(2000);
-	// myStepper.step(-200);
-	// delay(2000);
+
+	if (bluetoothSerial.available()) {
+		
+		readSerial(bluetoothSerial);
+		return; // Ensure that we only handle reading
+	}
 	compass.read();
 	input = (double)getCompassHeading();
 	pilot.compute();
@@ -102,19 +109,26 @@ void loop()
 
 void serialEvent()
 {
+	readSerial(Serial);
+}
 
-	while (Serial.available())
+void readSerial(Stream &serial) {
+	while (serial.available())
 	{
-		char bt = Serial.read();
+		char bt = serial.read();
+		char msg[10];
+		sprintf(msg, "bts:%02X", bt);
+		respond(LOG_INFO, msg);
 
 		headers[readBytes++] = bt;
 		if (bt == EOL_CHAR)
 		{
+			respond(LOG_INFO, headers);
 			readBytes = 0;
-			digitalWrite(INTERRUPT_PIN, HIGH);
-			digitalWrite(INTERRUPT_PIN, LOW);
+			handleCommand();
 		}
 	}
+
 }
 
 void endPilotCompass(const Command &command)

@@ -30,6 +30,19 @@ export class BluetoothClient implements Streamable {
 		this.btClient.write(chunk as any, cb as any);
 		return true;
 	}
+	
+	on(event: 'close', listener: () => void): this;
+	on(event: 'data', listener: (chunk: any) => void): this;
+	on(event: 'end', listener: () => void): this;
+	on(event: 'error', listener: (err: Error) => void): this;
+	on(event: 'pause', listener: () => void): this;
+	on(event: 'readable', listener: () => void): this;
+	on(event: 'resume', listener: () => void): this;
+	on(event: string | symbol, listener: (...args: any[]) => void): this {
+		this.btClient.on(event, listener);
+		return this;
+	}
+
 
 
 	// 	_read() {

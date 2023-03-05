@@ -103,6 +103,7 @@ enum Responses
 typedef struct Command
 {
 	Commands command;
+	Stream *source;
 	unsigned char messageID;
 	unsigned char *payload;
 } Command;
@@ -116,6 +117,7 @@ typedef struct Command
 void respond(Responses respCode, char *msg);
 void respond(Responses respCode, const __FlashStringHelper *msg);
 void respond(Responses respCode, char *msg, unsigned char messageID);
+
 
 void commandFrom(Command *cmd, char *headers);
 

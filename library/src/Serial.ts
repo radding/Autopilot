@@ -44,6 +44,10 @@ export interface ISerialInterface {
 
 export type Streamable = Pick<stream.Duplex, "pipe" | "write">;
 
+const GetBytesString = (arr: number[]) => {
+	return arr.map(bt => `0x${Buffer.from([bt]).toString("hex")}`).join(" ")
+}
+
 export class SerialInterface implements ISerialInterface {
 	private responseWaiters: Map<number, (resp: RawResponse) => void> = new Map();
 	private tempResults: Map<number, RawResponse> = new Map();
@@ -66,7 +70,8 @@ export class SerialInterface implements ISerialInterface {
 						* old chunk is done because we encountered the EOL char, yield it and send it down our pipeline
 						* set real chunk to a new empty array to be able to accept the next serial data.
 						*/
-						yield new Uint8Array(realChunk);
+						const chunkToYield = new Uint8Array(realChunk);
+						yield chunkToYield;
 						realChunk = [];
 					}
 				}
