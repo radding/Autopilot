@@ -43,6 +43,16 @@ export interface ISerialInterface {
 
 }
 
+export class TimeOutError extends Error {
+	constructor(msg: string) {
+		super(`operation timedout: ${msg}`)
+	}
+}
+
+export const isTimeOutError = (val: unknown): val is TimeOutError => {
+	return val instanceof TimeOutError;
+}
+
 export type Streamable = Pick<stream.Duplex, "pipe" | "write">;
 
 const GetBytesString = (arr: number[]) => {
@@ -142,7 +152,7 @@ export class SerialInterface implements ISerialInterface {
 			const array = new Uint8Array([cmd.command, messageID!, cmd.payload.length, ...cmd.payload, EOL_CHAR]);
 			this.port.write(array, undefined, (err) => {
 				console.log(`waiting ${timeOutMS}ms before failing out!`);
-				setTimeout(rej, timeOutMS, new Error("timeout waiting for serial reply"))
+				setTimeout(rej, timeOutMS, new TimeOutError("timeout waiting for serial reply"))
 				if (err) {
 					return rej(err);
 				} else if (this.tempResults.has(messageID)) {

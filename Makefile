@@ -1,5 +1,7 @@
 .PHONY: all microcontroller
 
+all: install lib
+
 microcontroller:
 	@$(MAKE) -C microcontroller build
 
@@ -9,4 +11,5 @@ install: microcontroller
 lib:
 	@$(MAKE) -C library build
 
-all: lib install
+shell: all
+	node

@@ -9,11 +9,17 @@
 #include "converters.h"
 #include "pid.h"
 #include "CombinedStream.h"
+#include "calibrator.h"
+#include "MemoryFree.h"
+#include "eeprom.h"
 
 #define RX_PIN 2
 #define TX_PIN 3
+#define EEPROM_CALIB_DATA_START_ADDR 0
+#define RESET_PIN 10
 
 QMC5883LCompass compass;
+Calibrator *calib;
 
 // PILOT SHIT
 ArduPID pilot;
@@ -24,17 +30,15 @@ double p = .5;
 double i = 1;
 double d = 0;
 
-handlerFn handlers[9];
+void(* resetFunc) (void) = 0;
 
-CommandHandler handler(handlers);
-
-volatile State state = INIT;
 bool keepSendingHeading = false;
 bool piloting = false;
+bool isCalibrating = false;
 volatile int desired_heading = -1;
 volatile char streamID = -1;
 
-volatile char headers[12];
+volatile char headers[30];
 volatile short readBytes;
 
 // Stepper motor stuff
@@ -51,22 +55,38 @@ void setup()
 
 	Wire.begin();
 	compass.init();
+	compass.setSmoothing(5, true);
+	compass.setMode(0x01, 0x00, 0x10, 0x80);
 
 	// TODO: Set in eeprom
-	compass.setCalibration(-157, 382, -1595, 0, -395, 0);
-	compass.setSmoothing(10, true);
+	int calibData[3][2];
+	readFromEeprom(EEPROM_CALIB_DATA_START_ADDR, calibData);
+	char msg[60];
+	sprintf(
+		msg,
+		"data:[[%d,%d],[%d,%d],[%d,%d]]",
+		calibData[0][0],
+		calibData[0][1],
+		calibData[1][0],
+		calibData[1][1],
+		calibData[2][0],
+		calibData[2][1]
+	);
+	respond(LOG_INFO, msg);
+	compass.setCalibration(
+		calibData[0][0],
+		calibData[0][1],
+		calibData[1][0],
+		calibData[1][1],
+		calibData[2][0],
+		calibData[2][1]
+	);
+	
+
 	pilot.begin(&input, &output, &setpoint, p, i, d);
 
 	pilot.setOutputLimits(-360, 360);
 	pilot.setWindUpLimits(-10, 10);
-
-	handler.addHandler(BEGIN_PILOT_COMPASS, &pilotCompass);
-	handler.addHandler(END_PILOT_COMPASS, &endPilotCompass);
-	handler.addHandler(GET_BEARING, &getBearingCommand);
-	handler.addHandler(SET_DESIRED_BEARING, &setDesiredBearingCommand);
-	handler.addHandler(CONTINUOS_GET_HEADING, &contiousHeadingCommand);
-	handler.addHandler(STOP_SENDING_HEADING, &stopContinousHeadingCommand);
-	handler.addHandler(PING, &pingCommand);
 
 	myStepper.setSpeed(100);
 
@@ -82,7 +102,6 @@ void loop()
 {
 
 	if (bluetoothSerial.available()) {
-		
 		readSerial(bluetoothSerial);
 		return; // Ensure that we only handle reading
 	}
@@ -91,6 +110,30 @@ void loop()
 	pilot.compute();
 	char msg[22];
 	char fMsg[10];
+	if (isCalibrating) {
+		calib->calibrate();
+		respond(LOG_INFO, "calibrating!");
+		if (calib->getIsDone()) {
+			char msg[60];
+			sprintf(
+				msg,
+				"data:[[%d,%d],[%d,%d],[%d,%d]]",
+				calib->calibrationData[0][0],
+				calib->calibrationData[0][1],
+				calib->calibrationData[1][0],
+				calib->calibrationData[1][1],
+				calib->calibrationData[2][0],
+				calib->calibrationData[2][1]
+			);
+			respond(LOG_INFO, msg);
+
+			saveInEeprom(EEPROM_CALIB_DATA_START_ADDR, calib->calibrationData);
+			respond(CALIBRATION_DONE, 0x00, streamID);
+			delay(100);
+			stopCalibration();
+		}
+		return;
+	}
 	if (keepSendingHeading)
 	{
 		int heading = getCompassHeading();
@@ -116,10 +159,6 @@ void readSerial(Stream &serial) {
 	while (serial.available())
 	{
 		char bt = serial.read();
-		char msg[10];
-		sprintf(msg, "bts:%02X", bt);
-		respond(LOG_INFO, msg);
-
 		headers[readBytes++] = bt;
 		if (bt == EOL_CHAR)
 		{
@@ -182,11 +221,74 @@ void handleCommand()
 {
 	Command command;
 	commandFrom(&command, headers);
-	handler.broker(command);
+	if (isCalibrating && command.command != STOP_CALIBRATING) {
+		respond(ERR_IS_CALIBRATING, 0x00, command.command);
+		return;
+	}
+	switch (command.command)
+	{
+	case BEGIN_PILOT_COMPASS:
+		pilotCompass(command);
+		break;
+	case END_PILOT_COMPASS:
+		endPilotCompass(command);
+		break;
+	case GET_BEARING:
+		getBearingCommand(command);
+		break;
+	case SET_DESIRED_BEARING:
+		setDesiredBearingCommand(command);
+		break;
+	case CONTINUOS_GET_HEADING:
+		contiousHeadingCommand(command);
+		break;
+	case STOP_SENDING_HEADING:
+		stopContinousHeadingCommand(command);
+		break;
+	case PING:
+		pingCommand(command);
+		break;
+	case REPORT_FREE_MEMORY:
+		handleFreeMemoryRequest(command);
+		break;
+	case RESET_UNIT:
+	  	respond(ACK, 0x00, command.messageID);
+		delay(200);
+	 	resetProcessor();
+		break;
+	case CALIBRATE_COMPASS:
+		isCalibrating = true; // Don't ack the message
+		calib = new Calibrator(compass);
+		streamID = command.messageID;
+		break;
+	case STOP_CALIBRATING:
+		stopCalibration();
+		respond(ACK, 0x00, command.messageID);
+	case CHANGE_NAME:
+		changeBluetoothDeviceName(command);
+		break;
+	default:
+		char msg[30];
+		sprintf(
+			msg,
+			"handler not found:%d",
+			command.command
+		);
+		respond(LOG_WARN, msg);
+		respond(UNRECOGNIZED_COMMAND, 0x00, command.messageID);
+		break;
+	}
+	// handler.broker(command);
 	memset(headers, 0, sizeof(headers));
 }
 
-void pilotCompass(Command command)
+void stopCalibration() {
+	isCalibrating = false;
+	delete calib;
+	streamID = -1;
+}
+
+void pilotCompass(const Command &command)
 {
 	char msg[25];
 	sprintf(msg, "cmdCode:%x", command.command);
@@ -201,3 +303,35 @@ void pilotCompass(Command command)
 	pilot.start();
 	respond(ACK, 0x00, command.messageID);
 };
+
+void handleFreeMemoryRequest(const Command &command) {
+	int freeMem = freeMemory();
+	char bts[2];
+	shift(bts, freeMem, 2);
+	respond(FREE_MEMORY, bts, command.messageID);
+}
+
+void resetProcessor() {
+	resetFunc();
+	// digitalWrite(RESET_PIN, LOW);
+}
+
+void changeBluetoothDeviceName(const Command &cmd) {
+	char * command = malloc(strlen("AT+NAME") + strlen(cmd.payload));
+	sprintf(
+		command,
+		"AT+NAME%s",
+		cmd.payload
+	);
+	respond(LOG_INFO, cmd.payload);
+	bluetoothSerial.write(command);
+	delay(10);
+	while(!bluetoothSerial.available()) {}
+	char response[11];
+	int byteToRead = 0;
+	while(bluetoothSerial.available() && byteToRead < 11) {
+		response[byteToRead++] = bluetoothSerial.read();
+	}
+	respond(LOG_INFO, response);
+	respond(NAME_CHANGED, 0x00, cmd.messageID);
+}

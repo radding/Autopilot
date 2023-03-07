@@ -40,6 +40,22 @@ enum Commands
 
 	PING,
 
+	/**
+	 * Report how much free memory we have available
+	*/
+	REPORT_FREE_MEMORY,
+
+	/**
+	 * Reboot the processor
+	*/
+	RESET_UNIT,
+
+	STOP_CALIBRATING,
+
+	CHANGE_NAME,
+
+	CHANGE_LOG_LEVEL,
+
 	_last,
 
 };
@@ -94,9 +110,21 @@ enum Responses
 	PONG = 0x0A,
 
 	/**
+	 * Respond with the memory available
+	*/
+	FREE_MEMORY = 0x0B,
+
+	/**
 	 * The desired heading was not set
 	 */
 	ERR_NO_DESIRED_HEADING = 0x0B,
+
+	CALIBRATION_DONE,
+
+	ERR_IS_CALIBRATING,
+	
+	NAME_CHANGED,
+
 
 };
 

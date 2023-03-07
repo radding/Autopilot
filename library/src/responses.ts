@@ -41,11 +41,25 @@ export enum ResponseCode {
 	 */
 	MODULE_READY = 0x09,
 
+	/**
+	 * Send a heartbeat over serial
+	 */
 	PONG = 0x0A,
+
+	/**
+	 * Respond with the memory available
+	*/
+	FREE_MEMORY = 0x0B,
 
 	/**
 	 * The desired heading was not set
 	 */
 	ERR_NO_DESIRED_HEADING = 0x0B,
+
+	CALIBRATION_DONE,
+
+	ERR_IS_CALIBRATING,
+	
+	NAME_CHANGED,
 
 };

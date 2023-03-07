@@ -3,7 +3,7 @@ import { CommandCode } from "./commands";
 import { Logger } from "./logger";
 import { LoggerTransformer } from "./LogTransformer";
 import { ResponseCode } from "./responses";
-import { ISerialInterface, RawResponse, ResponseTransformer, SerialInterface } from "./Serial";
+import { Command, ISerialInterface, isTimeOutError, RawResponse, ResponseTransformer, SerialInterface, TimeOutError } from "./Serial";
 import stream from "stream";
 import { AckResponse } from "./cmds/BeginPilotCmd";
 import { PingResponse } from "./cmds/PingCmd";
@@ -12,6 +12,8 @@ export interface AutopilotCommand<T> {
 	command: CommandCode;
 	payload: Uint8Array;
 	expectedResponse: ResponseTransformer<T>
+	timeoutMS?: number;
+	timeOutCommand?: AutopilotCommand<AckResponse>;
 }
 
 export interface StreamableAutopilotCommand<T> {
@@ -83,7 +85,15 @@ export class AutopilotClient {
 	}
 
 	public async send<T>(cmd: AutopilotCommand<T>, timeOutMS: number = 1000): Promise<T> {
-		return this._send(cmd, timeOutMS, false);
+		try {
+			return this._send(cmd, cmd.timeoutMS ?? timeOutMS, false);
+		} catch (e) {
+			if (isTimeOutError(e) && cmd.timeOutCommand) {
+				await this.send(cmd.timeOutCommand, timeOutMS);
+				throw new TimeOutError(`${CommandCode[cmd.command]} operation timed out`);
+			}
+			throw e;
+		}
 	}
 
 	private async _send<T>(cmd: AutopilotCommand<T>, timeOutMS: number = 1000, skipReadyCheck: boolean = false): Promise<T> {

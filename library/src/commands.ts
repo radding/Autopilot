@@ -29,6 +29,14 @@ export enum CommandCode {
 
 	PING,
 
+	REPORT_FREE_COMMAND,
+
+	RESET_UNIT,
+
+	STOP_CALIBRATING,
+
+	CHANGE_NAME,
+
 	_last,
 
 };

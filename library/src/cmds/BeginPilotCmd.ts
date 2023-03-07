@@ -7,6 +7,19 @@ export interface AckResponse {
 	ack: boolean
 }
 
+export const EmptyResponse = (responseCode: ResponseCode) => {
+	return {
+		toResponse(raw: RawResponse) {
+			if (raw.responseCode === responseCode) {
+				return {
+					done: true,
+				}
+			}
+			throw new Error(`unrecognized response code: ${raw.responseCode.toString(16)}`);
+		}
+	}
+}
+
 export const AckResponse = (...errorCases: ResponseCode[]) => {
 	const errorCodesSet = new Set(errorCases);
 	return {

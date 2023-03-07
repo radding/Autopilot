@@ -6,3 +6,7 @@ export * from "./cmds/PingCmd";
 export * from "./cmds/SetDesiredBearingCmd";
 export * from "./Serial";
 export * from "./expBackoffSerial";
+export * from "./cmds/ReportFreeMemoryCommand";
+export * from "./cmds/ResetCommand";
+export * from "./cmds/CalibrateCommand";
+export * from "./cmds/changeNameCommand";

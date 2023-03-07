@@ -5,6 +5,28 @@
 #include <SoftwareSerial.h>
 #include "./CombinedStream.h"
 
+
+enum LogLevel {
+	ERROR = 0b1000,
+	WARN = 0b0100,
+	INFO = 0b0010,
+	DEBUG = 0b0001,
+};
+
+#ifndef LOG_LEVEL
+#define LOG_LEVEL INFO | WARN | ERROR
+#endif
+
+byte logLevel = LOG_LEVEL;
+
+bool filterRespCode(Responses code) {
+	return (code > LOG_WARN || code == HEADING)
+		|| (code == LOG_ERROR && logLevel & ERROR) 
+		|| (code == LOG_WARN && logLevel & WARN)
+		|| (code == LOG_INFO && logLevel & INFO)
+		|| (code == LOG_TRACE && logLevel & DEBUG);
+}
+
 void btRespond(char *msg) {
 	SoftwareSerial *bt = GetBlueTooth();
 	if (!bt) {
