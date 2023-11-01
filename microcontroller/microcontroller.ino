@@ -1,25 +1,36 @@
-#include <QMC5883LCompass.h>
+#include <MPU9250_WE.h>
 #include <stdio.h>
 #include <Stepper.h>
 #include <SoftwareSerial.h>
 
+#include "Compass.h"
 #include "statemachine.h"
 #include "Command.h"
 #include "commandHandler.h"
 #include "converters.h"
 #include "pid.h"
 #include "CombinedStream.h"
-#include "calibrator.h"
 #include "MemoryFree.h"
 #include "eeprom.h"
+#ifdef USE_MPU9250_WE
+#include "MPU9250Compass.h"
+#endif
 
 #define RX_PIN 2
 #define TX_PIN 3
 #define EEPROM_CALIB_DATA_START_ADDR 0
-#define RESET_PIN 10
 
-QMC5883LCompass compass;
-Calibrator *calib;
+//Compass information
+// MPU9250_WE compass = MPU9250_WE(MPU9250_ADDR);
+#ifdef USE_MPU9250_WE
+MPU9250Compass compass; 
+#else 
+	Compass compass;
+#endif
+
+// QMC5883LCompass compass;
+// Calibrator *calib;
+
 
 // PILOT SHIT
 ArduPID pilot;
@@ -49,39 +60,16 @@ SoftwareSerial bluetoothSerial(RX_PIN, TX_PIN);
 
 void setup()
 {
+
 	Serial.begin(9600);
 	bluetoothSerial.begin(9600);
 	SetBlueTooth(bluetoothSerial);
-
-	Wire.begin();
-	compass.init();
-	compass.setSmoothing(5, true);
-	compass.setMode(0x01, 0x00, 0x10, 0x80);
-
-	// TODO: Set in eeprom
-	int calibData[3][2];
-	readFromEeprom(EEPROM_CALIB_DATA_START_ADDR, calibData);
-	char msg[60];
-	sprintf(
-		msg,
-		"data:[[%d,%d],[%d,%d],[%d,%d]]",
-		calibData[0][0],
-		calibData[0][1],
-		calibData[1][0],
-		calibData[1][1],
-		calibData[2][0],
-		calibData[2][1]
-	);
-	respond(LOG_INFO, msg);
-	compass.setCalibration(
-		calibData[0][0],
-		calibData[0][1],
-		calibData[1][0],
-		calibData[1][1],
-		calibData[2][0],
-		calibData[2][1]
-	);
 	
+	Wire.begin();
+	// if (compass == 0x00) {
+		// respond(FATAL, "Compass is nil");
+	// }
+	compass.initialize();
 
 	pilot.begin(&input, &output, &setpoint, p, i, d);
 
@@ -93,45 +81,54 @@ void setup()
 	respond(MODULE_READY, (char *)0x00);
 }
 
-int getCompassHeading()
+float getCompassHeading()
 {
-	return compass.getAzimuth();
+	return compass.getHeading();
 }
 
 void loop()
 {
-
+	compass.read();
 	if (bluetoothSerial.available()) {
 		readSerial(bluetoothSerial);
 		return; // Ensure that we only handle reading
 	}
-	compass.read();
 	input = (double)getCompassHeading();
 	pilot.compute();
 	char msg[22];
 	char fMsg[10];
 	if (isCalibrating) {
-		calib->calibrate();
-		respond(LOG_INFO, "calibrating!");
-		if (calib->getIsDone()) {
-			char msg[60];
-			sprintf(
-				msg,
-				"data:[[%d,%d],[%d,%d],[%d,%d]]",
-				calib->calibrationData[0][0],
-				calib->calibrationData[0][1],
-				calib->calibrationData[1][0],
-				calib->calibrationData[1][1],
-				calib->calibrationData[2][0],
-				calib->calibrationData[2][1]
-			);
-			respond(LOG_INFO, msg);
+		struct {
+			Vector3D mag;
+			Vector3D accel;
+			Vector3D gyro;
+		} CalibrationData;
 
-			saveInEeprom(EEPROM_CALIB_DATA_START_ADDR, calib->calibrationData);
-			respond(CALIBRATION_DONE, 0x00, streamID);
-			delay(100);
-			stopCalibration();
-		}
+		CalibrationData.mag = compass.getMag();
+		CalibrationData.accel = compass.getAccel();
+		CalibrationData.gyro = compass.getGyro();
+		respondWithAnything(CALIBRATION_DATA, CalibrationData, streamID);
+		// calib->calibrate();
+		// respond(LOG_INFO, "calibrating!");
+		// if (calib->getIsDone()) {
+		// 	char msg[60];
+		// 	sprintf(
+		// 		msg,
+		// 		"data:[[%d,%d],[%d,%d],[%d,%d]]",
+		// 		calib->calibrationData[0][0],
+		// 		calib->calibrationData[0][1],
+		// 		calib->calibrationData[1][0],
+		// 		calib->calibrationData[1][1],
+		// 		calib->calibrationData[2][0],
+		// 		calib->calibrationData[2][1]
+		// 	);
+		// 	respond(LOG_INFO, msg);
+
+		// 	saveInEeprom(EEPROM_CALIB_DATA_START_ADDR, calib->calibrationData);
+		// 	respond(CALIBRATION_DONE, 0x00, streamID);
+		// 	delay(100);
+		// 	stopCalibration();
+		// }
 		return;
 	}
 	if (keepSendingHeading)
@@ -180,7 +177,7 @@ void getBearingCommand(const Command &command)
 {
 	char res[3];
 	memset(res, 1, sizeof(res));
-	int compassHeading = getCompassHeading();
+	int compassHeading = static_cast<int>(getCompassHeading());
 	shift(res, compassHeading, 2);
 	respond(HEADING, res, command.messageID);
 }
@@ -257,8 +254,8 @@ void handleCommand()
 	 	resetProcessor();
 		break;
 	case CALIBRATE_COMPASS:
-		isCalibrating = true; // Don't ack the message
-		calib = new Calibrator(compass);
+		// isCalibrating = true; // Don't ack the message
+		// calib = new Calibrator(compass);
 		streamID = command.messageID;
 		break;
 	case STOP_CALIBRATING:
@@ -267,6 +264,13 @@ void handleCommand()
 	case CHANGE_NAME:
 		changeBluetoothDeviceName(command);
 		break;
+	case STREAM_CALIBRATION_DATA:
+		streamID = command.messageID;
+		isCalibrating = true;
+		break;
+	case STOP_STREAMING_CALIBRATION_DATA:
+		isCalibrating = false;
+		streamID = -1;
 	default:
 		char msg[30];
 		sprintf(
@@ -284,7 +288,7 @@ void handleCommand()
 
 void stopCalibration() {
 	isCalibrating = false;
-	delete calib;
+	// delete calib;
 	streamID = -1;
 }
 

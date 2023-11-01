@@ -59,6 +59,10 @@ export enum ResponseCode {
 	CALIBRATION_DONE,
 
 	ERR_IS_CALIBRATING,
+
+	CALIBRATION_DATA,
+
+	MSG_END,
 	
 	NAME_CHANGED,
 

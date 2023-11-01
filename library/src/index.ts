@@ -10,3 +10,4 @@ export * from "./cmds/ReportFreeMemoryCommand";
 export * from "./cmds/ResetCommand";
 export * from "./cmds/CalibrateCommand";
 export * from "./cmds/changeNameCommand";
+export * from "./cmds/StreamCalibrationData";

@@ -4,6 +4,10 @@ import { ResponseCode } from "./responses";
 import stream from "stream";
 
 const EOL_CHAR = Buffer.from("\n").readUint8(0);
+const RESPONSECODE_LOCATION = 0;
+const LEN_LOCATION = 1;
+const MESSAGEID_LOCATION = 3;
+const BODY_START = 4;
 
 export interface ResponsePayload<T> {
 	type: string;
@@ -61,6 +65,7 @@ const GetBytesString = (arr: number[]) => {
 
 export class SerialInterface implements ISerialInterface {
 	private responseWaiters: Map<number, (resp: RawResponse) => void> = new Map();
+	private resultsHolder: Map<number, Uint8Array> = new Map();
 	private tempResults: Map<number, RawResponse> = new Map();
 	private listeners: Map<ResponseCode, Array<(rawResponse: RawResponse) => void>> = new Map();
 	private parser: any;
@@ -72,11 +77,15 @@ export class SerialInterface implements ISerialInterface {
 		 */
 		const chunkinator = stream.Duplex.from(async function* generator(stream: AsyncIterable<Buffer>) {
 			let realChunk: number[] = [];
+			let len = -1;
 			for await (const chunk of stream) {
 				for (let i = 0; i < chunk.length; i++) {
 					const byte = chunk.readUint8(i);
-					realChunk.push(byte); // Append to the current chunk
-					if (byte === EOL_CHAR) {
+					realChunk.push(byte);
+					if (realChunk.length === 4) {
+						len = Buffer.from(realChunk.slice(2)).readUint16LE() + 5; //Offset for newline end and four headers
+					} // Append to the current chunk
+					if (realChunk.length === len) {
 						/**
 						* old chunk is done because we encountered the EOL char, yield it and send it down our pipeline
 						* set real chunk to a new empty array to be able to accept the next serial data.
@@ -84,11 +93,47 @@ export class SerialInterface implements ISerialInterface {
 						const chunkToYield = new Uint8Array(realChunk);
 						yield chunkToYield;
 						realChunk = [];
+						len = -1;
 					}
 				}
 			}
 			yield new Uint8Array(realChunk); // Flush any remaining data.
 		});
+
+		const combineMessages = stream.Duplex.from(async function *name(this: any, stream:AsyncIterable<Uint8Array>) {
+			const self = this as SerialInterface;
+			for await (const msg of stream) {
+				const messageID = msg.at(0)!;
+				const messageType = msg.at(1)!;
+
+				let exsistingPayload = new Uint8Array([messageID]);
+				if (self.resultsHolder.has(messageID!)) {
+					exsistingPayload = self.resultsHolder.get(messageID!)!;
+				}
+				if (messageType == 0x01) {
+					const commandCode = msg.at(4) as ResponseCode;
+					if (commandCode === ResponseCode.MSG_END) {
+						exsistingPayload = new Uint8Array([
+							...exsistingPayload,
+							EOL_CHAR,
+						]);
+						yield exsistingPayload;
+						self.resultsHolder.delete(messageID);
+					} else {
+						exsistingPayload = new Uint8Array([
+							...exsistingPayload,
+							commandCode,
+						])
+					}
+				} else if (messageType === 0x00) {
+					exsistingPayload = new Uint8Array([
+						...exsistingPayload,
+						...msg.slice(4, msg.length - 1)
+					]);
+				}
+				self.resultsHolder.set(messageID, exsistingPayload);
+			}
+		}.bind(this));
 
 		/**
 		 * Transform our Uint8Array into a response object. The response object contains our responseCode
@@ -98,10 +143,11 @@ export class SerialInterface implements ISerialInterface {
 		 */
 		const transformToResponse = stream.Duplex.from(async function* (stream: AsyncIterable<Uint8Array>) {
 			for await (const msg of stream) {
-				const responseCodeUint8: ResponseCode = msg.at(0) || ResponseCode.UNRECOGNIZED_COMMAND;
+				const responseCodeUint8: ResponseCode = msg.at(1) || ResponseCode.UNRECOGNIZED_COMMAND;
 				yield {
 					responseCode: responseCodeUint8,
-					messageID: msg.at(1),
+					// length: Buffer.from(msg.slice(LEN_LOCATION, MESSAGEID_LOCATION)).readUint16LE(),
+					messageID: msg.at(0),
 					payload: msg.slice(2),
 				}
 			}
@@ -110,7 +156,7 @@ export class SerialInterface implements ISerialInterface {
 		/**
 		 * Pipe our chunkinator and our transformer through our data.
 		 */
-		this.parser = port.pipe(chunkinator).pipe(transformToResponse);
+		this.parser = port.pipe(chunkinator).pipe(combineMessages).pipe(transformToResponse);
 
 		this.parser.on("data", ((chunk: RawResponse) => {
 			if (this.responseWaiters.has(chunk.messageID)) {
@@ -119,7 +165,7 @@ export class SerialInterface implements ISerialInterface {
 			} else if (this.streams.has(chunk.messageID)) {
 				const stream = this.streams.get(chunk.messageID);
 				stream!.write(chunk);
-			} else if (chunk.messageID != undefined && chunk.messageID !== 0x00) {
+			} else if (chunk.messageID != undefined && (chunk.messageID & 0x80) === 0) {
 				this.tempResults.set(chunk.messageID, chunk);
 			}
 			if (this.listeners.has(chunk.responseCode)) {
@@ -147,7 +193,7 @@ export class SerialInterface implements ISerialInterface {
 	}
 
 	public send(cmd: Command, timeOutMS: number = 1000, messageId?: number): Promise<RawResponse> {
-		const messageID = messageId ?? Math.floor(Math.random() * 255) + 1; // Generate a random 8 bit id;
+		const messageID = messageId ?? Math.floor(Math.random() * 127); // Generate a random 8 bit id;
 		return new Promise<RawResponse>((res, rej) => {
 			const array = new Uint8Array([cmd.command, messageID!, cmd.payload.length, ...cmd.payload, EOL_CHAR]);
 			this.port.write(array, undefined, (err) => {

@@ -1,4 +1,5 @@
 export enum CommandCode {
+	
 	/**
 	 * Respond with current magnetic bearing
 	 */
@@ -29,14 +30,22 @@ export enum CommandCode {
 
 	PING,
 
-	REPORT_FREE_COMMAND,
+	/**
+	 * Report how much free memory we have available
+	*/
+	REPORT_FREE_MEMORY,
 
+	/**
+	 * Reboot the processor
+	*/
 	RESET_UNIT,
 
 	STOP_CALIBRATING,
 
 	CHANGE_NAME,
 
-	_last,
+	STREAM_CALIBRATION_DATA,
+	STOP_STREAMING_CALIBRATION_DATA,
 
+	_last,
 };

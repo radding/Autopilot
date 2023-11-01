@@ -2,6 +2,9 @@
 #define COMMAND_H
 
 #include <Arduino.h>
+#include <SoftwareSerial.h>
+#include "./CombinedStream.h"
+#include "./converters.h"
 
 const unsigned char EOL_CHAR = '\n';
 
@@ -54,7 +57,8 @@ enum Commands
 
 	CHANGE_NAME,
 
-	CHANGE_LOG_LEVEL,
+	STREAM_CALIBRATION_DATA,
+	STOP_STREAMING_CALIBRATION_DATA,
 
 	_last,
 
@@ -122,6 +126,10 @@ enum Responses
 	CALIBRATION_DONE,
 
 	ERR_IS_CALIBRATING,
+
+	CALIBRATION_DATA,
+
+	MSG_END,
 	
 	NAME_CHANGED,
 
@@ -146,7 +154,60 @@ void respond(Responses respCode, char *msg);
 void respond(Responses respCode, const __FlashStringHelper *msg);
 void respond(Responses respCode, char *msg, unsigned char messageID);
 
+void sendMessage(Responses respCode, byte *msg, byte messageID);
+void sendMessage(Responses respCode, byte messageID);
+void sendMessage(Responses respCode);
+
 
 void commandFrom(Command *cmd, char *headers);
+
+template <class T> int respondWithAnything(Responses respCode, const T& value, byte messageID)
+{
+	SoftwareSerial *bt = GetBlueTooth();
+	  
+  	const byte* p = (const byte*)(const void*)&value;
+  	Serial.write(respCode);
+
+	if (bt) {
+		bt->write(respCode);
+	}
+
+	int msgLen = sizeof(p);
+	char size[2];
+	shift(size, msgLen, 2);
+	Serial.write(size, 2);
+	if (bt) {
+		bt->write(size, 2);
+	}
+
+  	Serial.write(messageID);
+	if (bt) {
+		bt->write(messageID);
+	}
+
+  	unsigned int i;
+  	for (i = 0; i < sizeof(value); i++) {
+		if (bt) {
+			bt->write(*p++);
+		}
+		Serial.write(*p++);
+  	}
+
+	Serial.write(EOL_CHAR);
+	if (bt) {
+		bt->write(EOL_CHAR);
+	}
+
+	return i;
+}
+
+template <class T> int convertFromAnything(byte* ee, T& value)
+{
+    byte* p = (byte*)(void*)&value;
+    unsigned int i;
+    for (i = 0; i < sizeof(value); i++)
+          *p++ = *ee++;
+    return i;
+}
 
 #endif

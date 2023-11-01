@@ -16,4 +16,4 @@ export class FreeMemoryResponse implements ResponseTransformer<Memory> {
 
 }
 
-export const ReportFreeMemoryCommand = createSimpleCmd(CommandCode.REPORT_FREE_COMMAND, new FreeMemoryResponse());
+export const ReportFreeMemoryCommand = createSimpleCmd(CommandCode.REPORT_FREE_MEMORY, new FreeMemoryResponse());
