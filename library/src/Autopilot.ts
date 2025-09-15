@@ -1,157 +1,153 @@
-import { SerialPort } from "serialport";
-import { CommandCode } from "./commands";
-import { Logger } from "./logger";
-import { LoggerTransformer } from "./LogTransformer";
-import { ResponseCode } from "./responses";
-import { Command, ISerialInterface, isTimeOutError, RawResponse, ResponseTransformer, SerialInterface, TimeOutError } from "./Serial";
-import stream from "stream";
-import { AckResponse } from "./cmds/BeginPilotCmd";
-import { PingResponse } from "./cmds/PingCmd";
+import { PassThrough, Readable, Transform } from "stream";
+import { AnyCommandV2, CommandV2Return } from "./commands";
+import { MessageLevel, PrintContents, RequestType, Response, ResponseType } from "./messages/service_pb";
+import { Logger } from "winston";
+import { ResponseStream } from "./stream";
+import { StartTelemetryV2 } from "./cmdsv2/StartTelemetry";
+import { Duplex } from "stream";
 
-export interface AutopilotCommand<T> {
-	command: CommandCode;
-	payload: Uint8Array;
-	expectedResponse: ResponseTransformer<T>
-	timeoutMS?: number;
-	timeOutCommand?: AutopilotCommand<AckResponse>;
-}
-
-export interface StreamableAutopilotCommand<T> {
-	startCommand: AutopilotCommand<T>;
-	endCommand: AutopilotCommand<AckResponse>;
+export interface Writer {
+	write(data: Uint8Array): void;
+	onMessage(cb: (data: Uint8Array) => void): void;
+	disconnect(): void;
 }
 
 
-interface AutopilotClientProperties {
-	serialConfig?: {
-		port?: string; // The Port or path to the USB device
-		serialPort?: stream.Duplex; // The Duplex Stream that supports the underlying communication.
-		serialInterface?: ISerialInterface; // The actual serial interface that manages the stream
-		baud?: number // The baud rate for the communication defaults to 9600
-	},
-	logger?: Logger; // Optional logger. defaults to the standard console
-	disableHeartbeat?: boolean; // Disable the heartbeat. The heartbeat is basically a way for the client to be able to tell if the device is responsive
+const asyncResolver = <T>() => {
+	let resolve: (data: T) => void;
+	const promise = new Promise<T>((res) => {
+		resolve = res;
+	});
+	return {
+		promise,
+		resolve: resolve!,
+	}
 }
 
-export class AutopilotClient {
-	private serial: ISerialInterface;
-	private isReady: boolean = false;
-	private missedHeartBeats = 0;
-	private logger: Logger;
+// class Stream extends Duplex {
+// 	writableObjectMode: boolean = true;
+// 	constructor() {
+// 		super();
+// 		this.writableObjectMode = true;
+// 	}
+// }
 
-	constructor(config?: AutopilotClientProperties) {
-		if (config?.serialConfig?.serialInterface) {
-			this.serial = config.serialConfig.serialInterface;
-		} else if (config?.serialConfig?.serialPort) {
-			this.serial = new SerialInterface(config.serialConfig.serialPort);
-		} else if (config?.serialConfig?.port) {
-			this.serial = new SerialInterface(new SerialPort({
-				path: config!.serialConfig!.port!,
-				baudRate: config.serialConfig.baud ?? 9600,
-			}));
-		} else {
-			throw new Error("Can't construct new serial interface");
-		}
-		const logger = config?.logger ?? console;
-		this.logger = logger;
-		const logTransformer = new LoggerTransformer();
-		this.serial.on([ResponseCode.LOG_ERROR, ResponseCode.LOG_INFO, ResponseCode.LOG_TRACE, ResponseCode.LOG_WARN, ResponseCode.FATAL], (rawResp: RawResponse) => {
-			const logResponse = logTransformer.toResponse(rawResp);
-			const lvl = logResponse.level !== "fatal" ? logResponse.level : "error";
-			if (logger[lvl]) {
-				logger[lvl](logResponse.msg);
-			} else {
-				console.error(`can't find logger that supports ${lvl}`);
+
+export class Autopilot {
+	private readonly messageWaiters: Map<number, (response: Response) => void> = new Map();
+	private readonly streamWaiters: Map<number, Duplex> = new Map();
+
+    constructor(private readonly writer: Writer, private readonly logger: Logger) {
+		let size = -1;
+		let buff: Uint8Array = new Uint8Array();
+		let written = 0;
+		this.writer.onMessage((data) => {
+			const buffT = Buffer.from(data);
+			this.logger.debug("onMessage", {data: buffT.toString("hex")});
+			if (size === -1) {
+				size = data[0];
+				data = data.slice(1);
+				buff = new Uint8Array(size);
+				this.logger.debug("expected message of size", {size});
+			}
+			if (data.length > 1) {
+				buff.set(data, written);
+				written += data.length;
+			}
+			if (written === size) {
+				const buffT = Buffer.from(buff);
+				this.logger.debug("full message", {data: buffT.toString("hex")});
+				const response = Response.deserializeBinary(buff);
+				if (response.getStreamid() > 0) {
+					this.logger.debug(`stream: ${JSON.stringify(response.toObject())}`, {service: "autopilot", streamid: response.getStreamid()});
+					const resolve = this.streamWaiters.get(response.getStreamid());
+					if (resolve) {
+						resolve.write(response);
+					}
+					else {
+						this.logger.error("No resolve for stream", response.getStreamid());
+					}
+					return;
+				}
+				this.logger.debug(`message: ${JSON.stringify(response.toObject())}`, {service: "autopilot", messageid: response.getMessageid()});
+				const resolve = this.messageWaiters.get(response.getMessageid());
+				if (resolve) {
+					resolve(response);
+				} else {
+					this.logger.error("No resolve for message", response.getMessageid());
+				}
+				size = -1;
+				written = 0;
+				buff = new Uint8Array();
 			}
 		});
 
-		this.serial.on(ResponseCode.MODULE_READY, () => {
-			logger.trace("Module is ready!");
-			this.isReady = true;
-		});
-		
-		this.testConnectivity(300).then(isConnected => this.isReady = true);
+		// this.stream(new StartTelemetryV2()).then((stream) => {
+		// 	stream.on("data", (data: PrintContents.AsObject) => {
+		// 		if (data.lvl === MessageLevel.INFO) {
+		// 			this.logger.info(data.message, {service: "autopilot"});
+		// 		} else if (data.lvl === MessageLevel.WARN) {
+		// 			this.logger.warn(data.message, {service: "autopilot"});
+		// 		} else if (data.lvl === MessageLevel.ERROR) {
+		// 			this.logger.error(data.message, {service: "autopilot"});
+		// 		} else if (data.lvl === MessageLevel.DEBUG) {
+		// 			this.logger.debug(data.message, {service: "autopilot"});
+		// 		} else if (data.lvl === MessageLevel.TRACE) {
+		// 			this.logger.debug(data.message, {service: "autopilot"});
+		// 		}
+		// 		this.logger.silly("metrics", {service: "autopilot", freeMemory: data.freememory});
+		// 	}).on("end", () => {
+		// 		console.log("telemetry end");
+		// 	});
+		// });
+    }
 
-		if (!config.disableHeartbeat) {
-			setTimeout(this.beginHeartbeat.bind(this), 500, 100);
+	public async send<
+		TCommand extends AnyCommandV2
+	>(command: TCommand): Promise<CommandV2Return<TCommand>> {
+		let messageId = Math.floor(Math.random() * 254) + 1;
+		while (this.messageWaiters.has(messageId)) {
+			messageId = Math.floor(Math.random() * 254) + 1;
 		}
+		const dataSend = command.encode(messageId, false);
+		const { promise, resolve } = asyncResolver<Response>();
+		this.messageWaiters.set(messageId, resolve);
+		this.writer.write(dataSend);
+		const response = await promise;
+		this.messageWaiters.delete(messageId);
+		return command.decode(response.serializeBinary());
 	}
 
-	/**
-	 * get deviceUnresponsive
-	 */
-	public get deviceUnresponsive(): boolean {
-		return this.missedHeartBeats === 3;
-	}
+	public async stream<
+		TCommand extends AnyCommandV2
+	>(command: TCommand): Promise<Duplex> {
+		let streamid = Math.floor(Math.random() * 254) + 1;
+		while (this.streamWaiters.has(streamid)) {
+			streamid = Math.floor(Math.random() * 254) + 1;
+		}
+		const dataSend = command.encode(streamid, true);
 
-	public async send<T>(cmd: AutopilotCommand<T>, timeOutMS: number = 1000): Promise<T> {
-		try {
-			return this._send(cmd, cmd.timeoutMS ?? timeOutMS, false);
-		} catch (e) {
-			if (isTimeOutError(e) && cmd.timeOutCommand) {
-				await this.send(cmd.timeOutCommand, timeOutMS);
-				throw new TimeOutError(`${CommandCode[cmd.command]} operation timed out`);
+		const responseStream = new PassThrough({
+			writableObjectMode: true,
+		}).pipe(new Transform({
+			objectMode: true,
+			transform(chunk: Response, encoding, callback) {
+				callback(null, command.decode(chunk.serializeBinary()));
 			}
-			throw e;
-		}
-	}
+		}));
+		this.writer.write(dataSend);
+		this.streamWaiters.set(streamid, responseStream);
+		// responseStream.on("data", (data: Response) => {
+		// 	// const response = Response.deserializeBinary(data);
+		// 	const val = command.decode(data.serializeBinary());
+		// 	return val;
+		// });
 
-	private async _send<T>(cmd: AutopilotCommand<T>, timeOutMS: number = 1000, skipReadyCheck: boolean = false): Promise<T> {
-		if (this.deviceUnresponsive) {
-			throw new Error("device is unresponsive!");
-		}
-		if (!this.isReady && !skipReadyCheck) {
-			throw new Error("device is not ready!");
-
-		}
-		const rawResponse = await this.serial.send(cmd, timeOutMS);
-		if (rawResponse.responseCode === ResponseCode.UNRECOGNIZED_COMMAND) {
-			throw new Error(`Unrecognized command: ${CommandCode[cmd.command]}`);
-		}
-		return cmd.expectedResponse.toResponse(rawResponse);
-	}
-
-	public async stream<T>(cmd: StreamableAutopilotCommand<T>): Promise<AsyncIterable<T>> {
-		const strm = await this.serial.stream({
-			...cmd.startCommand,
-			closeCommand: cmd.endCommand.command,
-		});
-
-		const transformer = stream.Duplex.from(async function* (resp: AsyncIterable<RawResponse>) {
-			for await (const raw of resp) {
-				yield cmd.startCommand.expectedResponse.toResponse(raw);
-			}
-		});
-		return strm.pipe(transformer);
-	}
-
-	private async beginHeartbeat(timeMS: number) {
-		try {
-			await this._send(new PingResponse(), timeMS, true);
-			this.missedHeartBeats = 0;
-			this.isReady = true;
-		} catch (e) {
-			this.logger.warn(`error getting heartbeat: ${e}`);
-			this.missedHeartBeats++;
-			if (this.deviceUnresponsive) {
-				return;
-			}
-		}
-		setTimeout(() => {
-			this.beginHeartbeat(timeMS);
-		}, timeMS);
-	}
+		return responseStream;
 	
-	public async testConnectivity(initialTimeout: number, maxAttempts: number = 4, attemptNumber: number = 0): Promise<boolean>{
-		if (maxAttempts === attemptNumber) {
-			return false;
-		}
-		try {
-			const resp = await this._send(new PingResponse(), initialTimeout);
-			return resp.ack;
-		} catch(e) {
-			this.logger.error(`caught: ${e}`);
-			return this.testConnectivity(initialTimeout + Math.round(Math.pow(1.3, attemptNumber)), maxAttempts, attemptNumber + 1);
-		}
+	}
+
+	public disconnect(): void {
+		this.writer.disconnect();
 	}
 }

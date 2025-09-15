@@ -1,0 +1,9 @@
+{
+  "name": "autopilot-app",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "apps/autopilot-app/src",
+  "projectType": "application",
+  "tags": [],
+  "// targets": "to see all targets run: nx show project autopilot-app --web",
+  "targets": {}
+}

@@ -1,0 +1,93 @@
+{
+    "name": "autopilot-library",
+    "$schema": "../node_modules/nx/schemas/project-schema.json",
+    "sourceRoot": "library/src",
+    "projectType": "library",
+    "implicitDependencies": [
+        "messages"
+    ],
+    "targets": {
+        "copy-protos": {
+            "executor": "nx:run-commands",
+            "options": {
+                "command": "copy ..\\messages\\typescript\\* .\\src\\messages\\*",
+                "cwd": "library"
+            },
+            "dependsOn": [
+                "^build"
+            ]
+        },
+        "install": {
+            "executor": "nx:run-commands",
+            "options": {
+                "command": "pnpm install",
+                "cwd": "library"
+            }
+        },
+        "build": {
+            "executor": "nx:run-commands",
+            "options": {
+                "command": "pnpm run build",
+                "cwd": "library"
+            },
+            "dependsOn": [
+                "install",
+                "copy-protos"
+            ],
+            "outputs": [
+                "{projectRoot}/dist"
+            ]
+        },
+        "type-check": {
+            "executor": "nx:run-commands",
+            "options": {
+                "command": "npx tsc --noEmit",
+                "cwd": "library"
+            },
+            "dependsOn": [
+                "install"
+            ]
+        },
+        "lint": {
+            "executor": "nx:run-commands",
+            "options": {
+                "command": "npx eslint . --ext .ts",
+                "cwd": "library"
+            }
+        },
+        "test": {
+            "executor": "nx:run-commands",
+            "options": {
+                "command": "pnpm test",
+                "cwd": "library"
+            },
+            "dependsOn": [
+                "install"
+            ]
+        },
+        "clean": {
+            "executor": "nx:run-commands",
+            "options": {
+                "command": "rmdir /s /q dist",
+                "cwd": "library"
+            }
+        },
+        "watch": {
+            "executor": "nx:run-commands",
+            "options": {
+                "command": "npx tsc --watch",
+                "cwd": "library"
+            },
+            "dependsOn": [
+                "install"
+            ]
+        }
+    },
+    "tags": [
+        "typescript",
+        "library",
+        "serial",
+        "bluetooth",
+        "autopilot"
+    ]
+}

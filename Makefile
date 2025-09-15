@@ -1,6 +1,6 @@
 .PHONY: all microcontroller
 
-all: install lib
+all: arduino-ble-upload lib
 
 arduino-ble:
 	@$(MAKE) -C ArduinoV2 build
@@ -26,5 +26,15 @@ android:
 lib:
 	@$(MAKE) -C library build
 
-shell: all
-	node
+shell: all shell-only
+
+shell-only: lib
+	node library/dist/shell/index.js
+
+proto-embedded:
+	@$(MAKE) -C messages embedded
+
+proto-ts:
+	@$(MAKE) -C messages typescript 
+
+protos: proto-embedded proto-ts

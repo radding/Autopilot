@@ -1,0 +1,100 @@
+{
+    "name": "autopilotapp",
+    "$schema": "../node_modules/nx/schemas/project-schema.json",
+    "sourceRoot": "AutopilotApp",
+    "projectType": "application",
+    "implicitDependencies": [
+        "messages",
+        "ArduinoV2"
+    ],
+    "targets": {
+        "install": {
+            "executor": "nx:run-commands",
+            "options": {
+                "command": "npm install",
+                "cwd": "AutopilotApp"
+            }
+        },
+        "build": {
+            "executor": "nx:run-commands",
+            "options": {
+                "command": "npm run build",
+                "cwd": "AutopilotApp"
+            },
+            "dependsOn": [
+                "install"
+            ]
+        },
+        "start": {
+            "executor": "nx:run-commands",
+            "options": {
+                "command": "expo start",
+                "cwd": "AutopilotApp"
+            },
+            "dependsOn": [
+                "install",
+                "^upload"
+            ]
+        },
+        "ios": {
+            "executor": "nx:run-commands",
+            "options": {
+                "command": "expo run:ios",
+                "cwd": "AutopilotApp"
+            },
+            "dependsOn": [
+                "build",
+                "^upload"
+            ]
+        },
+        "web": {
+            "executor": "nx:run-commands",
+            "options": {
+                "command": "expo start --web",
+                "cwd": "AutopilotApp"
+            },
+            "dependsOn": [
+                "build",
+                "^upload"
+            ]
+        },
+        "android": {
+            "executor": "nx:run-commands",
+            "options": {
+                "command": "npm run android",
+                "cwd": "AutopilotApp"
+            },
+            "dependsOn": [
+                "build",
+                "^upload"
+            ]
+        },
+        "lint": {
+            "executor": "nx:run-commands",
+            "options": {
+                "command": "npx eslint . --ext .ts,.tsx",
+                "cwd": "AutopilotApp"
+            }
+        },
+        "type-check": {
+            "executor": "nx:run-commands",
+            "options": {
+                "command": "npx tsc --noEmit",
+                "cwd": "AutopilotApp"
+            }
+        },
+        "test": {
+            "executor": "nx:run-commands",
+            "options": {
+                "command": "npm test",
+                "cwd": "AutopilotApp"
+            }
+        }
+    },
+    "tags": [
+        "react-native",
+        "expo",
+        "mobile",
+        "typescript"
+    ]
+}

@@ -1,4 +1,8 @@
-#pragma once
+// #pragma once
+#ifndef EEPROM_H
+#define EEPROM_H
 
-void writeStringToEEPROM(int addrOffset, const String &strToWrite);
-String readFromEEPROM(int addrOffset);
+void writeStringToEEPROM(int addrOffset, char *strToWrite);
+char *readFromEEPROM(int addrOffset);
+
+#endif

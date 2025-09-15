@@ -1,0 +1,7 @@
+ChangeName.name max_length:256
+SecretValue.secret max_length:255
+PrintContents.message max_length:256
+IdentifyResponse.name max_length:256
+IdentifyResponse.version max_length:30
+IdentifyResponse.serialNumber max_length:30
+IdentifyResponse.firmwareVersion max_length:30

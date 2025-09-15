@@ -1,0 +1,156 @@
+syntax = "proto3";
+
+enum RequestType
+{
+    READ_HEADING = 0;
+    HEAD_TO_HEADING = 1;
+    CALIBRATE = 2;
+    CALIBRATE_END = 3;
+    CHANGE_NAME = 4;
+    GET_CAPABILITIES = 5;
+    SET_PIN = 6;
+    SET_WIND_ANGLE = 7;
+    GET_WIND_ANGLE = 8;
+    GET_DATA = 9;
+    STREAM_DATA = 10;
+    STOP_STREAM = 11;
+    SECRET_VALUE = 12;
+    TOGGLE_PILOT = 13;
+    REPORT_FREE_MEMORY = 14;
+    PING = 15;
+    IDENTIFY = 16;
+    START_TELEMETRY = 17;
+}
+
+enum ResponseType {
+    HeadingResult = 0;
+    TargetHeadingResult = 1;
+    CALIBRATE_FINISHED = 2;
+    CapabilitesResult = 3;
+    WindAngleResult = 4;
+    DataResult = 5;
+    FreeMemoryResult = 6;
+    Print = 7;
+    Pong = 8;
+    IdentifyResult = 9;
+    TelemetryResult = 10;
+}
+
+enum AutopilotState {
+    Standby = 0;
+    Piloting_to_heading = 1;
+    Piloting_to_wind = 2;
+    Calibrating = 3;
+}
+
+message CourseHeading {
+    optional double courseOverGround = 1;
+    optional double magneticCourse = 2;
+}
+
+message HeadToHeadingRequest {
+    double heading = 1;
+}
+
+message Empty {
+}
+
+// message CalibrateEnd {
+
+// }
+
+message ChangeName {
+    string name = 1;
+}
+
+message GetCapabilitesResponse {
+    bool wind = 1;
+    bool magnetic = 2;
+    bool gps = 3;
+    double freeMemory = 4;
+    AutopilotState state = 5;
+}
+
+message WindAngle {
+    double windAngle = 1;
+}
+
+message DeviceData {
+    optional double latitude = 1;
+    optional double longitude = 2;
+    optional double speedOverGround = 3;
+    optional double courseOverGround = 4;
+    optional double magneticCourse = 5;
+    optional double windAngle = 6;
+    bool piloting = 7;
+    bool hasGPSFix = 8;
+    optional double targetHeading = 9;
+}
+
+message SecretValue {
+    string secret = 1;
+}
+
+message Pilot {
+    bool pilot = 1;
+}
+
+message FreeMemory {
+    double memory = 1;
+}
+
+enum MessageLevel {
+    Error = 0;
+    Warn = 1;
+    Info = 2;
+    Debug = 3;
+    Trace = 5;
+}
+
+message PrintContents {
+    string message = 1;
+    MessageLevel lvl = 2;
+    uint32 freeMemory = 3;
+}
+
+message StreamDataRequest {
+    uint32 streamRefreshRate = 1;
+}
+
+message Request {
+    RequestType type = 1;
+    oneof message {
+        ChangeName nameChange = 2;
+        WindAngle windAngle = 3;
+        Pilot piloting = 4;
+        SecretValue secret = 5;
+        Empty empty = 6;
+        HeadToHeadingRequest heading = 8;
+        StreamDataRequest streamDataRequest = 10;
+    }
+    uint32 messageID = 7;
+    uint32 streamID = 9;
+}
+
+message IdentifyResponse {
+    string name = 1;
+    string version = 2;
+    string serialNumber = 3;
+    string firmwareVersion = 4;
+}
+
+message Response {
+    ResponseType type = 1;
+    oneof message {
+        CourseHeading heading = 2;
+        DeviceData data = 3;
+        GetCapabilitesResponse Capabilites = 4;
+        Empty empty = 5;
+        WindAngle angle = 6;
+        FreeMemory memory = 7;
+        PrintContents telemetryContents = 8;
+        IdentifyResponse identify = 10;
+    }
+    uint32 messageID = 9;
+    uint32 streamID = 11;
+}

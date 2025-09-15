@@ -1,0 +1,116 @@
+{
+  "name": "cli",
+  "$schema": "../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "cli/src",
+  "projectType": "application",
+  "implicitDependencies": [
+    "messages",
+    "autopilot-library",
+    "ArduinoV2",
+    "arduino-v2"
+  ],
+  "tags": [
+    "cli",
+    "repl",
+    "serial",
+    "bluetooth"
+  ],
+  "dependencies": [
+    "ArduinoV2",
+    "arduino-v2"
+  ],
+  "targets": {
+    "build": {
+      "executor": "@nx/esbuild:esbuild",
+      "outputs": [
+        "{options.outputPath}"
+      ],
+      "defaultConfiguration": "production",
+      "options": {
+        "platform": "node",
+        "outputPath": "dist/cli",
+        "format": [
+          "cjs"
+        ],
+        "bundle": false,
+        "main": "cli/src/main.ts",
+        "tsConfig": "cli/tsconfig.app.json",
+        "assets": [
+          "cli/src/assets"
+        ],
+        "generatePackageJson": true,
+        "esbuildOptions": {
+          "sourcemap": true,
+          "outExtension": {
+            ".js": ".js"
+          }
+        }
+      },
+      "configurations": {
+        "development": {},
+        "production": {
+          "esbuildOptions": {
+            "sourcemap": false,
+            "outExtension": {
+              ".js": ".js"
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "^build"
+      ]
+    },
+    "serve": {
+      "continuous": true,
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "npx tsx src/main.ts",
+        "cwd": "cli",
+        "tty": true
+      },
+      "dependsOn": [
+        "^build",
+        "^upload"
+      ]
+    },
+    "start": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "node dist/cli/main.js",
+        "cwd": "cli"
+      },
+      "dependsOn": [
+        "build"
+      ]
+    },
+    "dev": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "npx tsx src/main.ts",
+        "cwd": "cli"
+      }
+    },
+    "install": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "npm install",
+        "cwd": "cli"
+      }
+    },
+    "lint": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "npx eslint . --ext .ts",
+        "cwd": "cli"
+      }
+    },
+    "type-check": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "npx tsc --noEmit",
+        "cwd": "cli"
+      }
+    }
+  }
+}

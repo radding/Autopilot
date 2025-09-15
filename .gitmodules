@@ -1,0 +1,3 @@
+[submodule "messages/nanopb"]
+	path = messages/nanopb
+	url = https://github.com/nanopb/nanopb.git

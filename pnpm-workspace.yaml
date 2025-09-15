@@ -1,0 +1,6 @@
+packages:
+  - 'cli'
+  - 'library'
+  - 'AutopilotApp'
+  - 'messages'
+  - 'apps/**'

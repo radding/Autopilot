@@ -1,0 +1,79 @@
+{
+    "name": "messages",
+    "$schema": "../node_modules/nx/schemas/project-schema.json",
+    "sourceRoot": "messages",
+    "projectType": "library",
+    "targets": {
+        "embedded": {
+            "executor": "nx:run-commands",
+            "options": {
+                "command": "python ./nanopb/generator/nanopb_generator.py ./protos/service.proto -I ./protos -D embedded",
+                "cwd": "messages"
+            },
+            "inputs": [
+                {
+                    "fileset": "{projectRoot}/protos"
+                }
+            ],
+            "outputs": [
+                "embedded"
+            ]
+        },
+        "typescript": {
+            "executor": "nx:run-commands",
+            "options": {
+                "command": "protoc --js_out=\"import_style=commonjs,binary:typescript\" --ts_out=\"typescript\" ./protos/service.proto -I ./protos/",
+                "cwd": "messages"
+            },
+            "inputs": [
+                {
+                    "fileset": "{projectRoot}/protos"
+                }
+            ],
+            "outputs": [
+                "{projectRoot}/typescript"
+            ]
+        },
+        "proto-embedded": {
+            "executor": "nx:run-commands",
+            "options": {
+                "command": "python ./nanopb/generator/nanopb_generator.py ./protos/service.proto -I ./protos -D embedded",
+                "cwd": "messages"
+            },
+            "inputs": [
+                {
+                    "fileset": "{projectRoot}/protos"
+                }
+            ],
+            "outputs": [
+                "embedded"
+            ]
+        },
+        "build": {
+            "executor": "nx:run-commands",
+            "options": {
+                "commands": [
+                    "python ./nanopb/generator/nanopb_generator.py ./protos/service.proto -I ./protos -D embedded",
+                    "protoc --js_out=\"import_style=commonjs,binary:typescript\" --ts_out=\"typescript\" ./protos/service.proto -I ./protos/"
+                ],
+                "cwd": "messages",
+                "parallel": true
+            },
+            "inputs": [
+                {
+                    "fileset": "{projectRoot}/protos"
+                }
+            ],
+            "outputs": [
+                "{projectRoot}/embedded",
+                "{projectRoot}/typescript"
+            ]
+        }
+    },
+    "tags": [
+        "protocol-buffers",
+        "code-generation",
+        "embedded",
+        "typescript"
+    ]
+}

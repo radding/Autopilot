@@ -1,0 +1,48 @@
+{
+    "name": "cli",
+    "version": "1.0.0",
+    "description": "CLI application for Autopilot with REPL interface",
+    "main": "dist/cli",
+    "bin": {
+        "autopilot-cli": "./dist/cli/main.js"
+    },
+    "scripts": {
+        "build": "tsc",
+        "serve": "npx tsx src/main.ts",
+        "test": "echo \"Error: no test specified\" && exit 1"
+    },
+    "dependencies": {
+        "@autopilot/library": "workspace:*",
+        "argparse": "^2.0.1",
+        "chalk": "^5.3.0",
+        "commander": "^11.1.0",
+        "inquirer": "^9.2.12",
+        "ora": "^7.0.1",
+        "serialport": "^13.0.0",
+        "winston": "^3.8.2"
+    },
+    "devDependencies": {
+        "@types/inquirer": "^9.0.7",
+        "@types/node": "^20.10.0",
+        "@types/serialport": "^10.2.0",
+        "tsx": "^4.6.0",
+        "typescript": "^5.8.2"
+    },
+    "author": "",
+    "license": "ISC",
+    "nx": {
+        "targets": {
+            "serve": {
+                "dependsOn": [
+                    "build"
+                ]
+            },
+            "build": {
+                "dependsOn": [
+                    "^build",
+                    "lint"
+                ]
+            }
+        }
+    }
+}

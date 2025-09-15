@@ -1,4 +1,4 @@
-.PHONY: build
+.PHONY: build proto
 
 BOARD=nano
 PORT=/dev/ttyACM0
@@ -8,10 +8,16 @@ CORRECTION_ALGO=INSTR
 
 BOARDFQ=arduino:mbed_nano:nano33ble
 
+proto:
+	@$(MAKE) -C ../ proto-embedded
+
+copy-protos: proto
+	copy ..\\messages\\embedded\\* .
+
 all: upload
 
-build:
-	arduino-cli compile -b $(BOARDFQ) .
+build: copy-protos 
+	arduino-cli compile -b $(BOARDFQ) . 
 
 build-clean:
 	arduino-cli compile --clean -b $(BOARDFQ) . --build-property "build.extra_flags=-DLOG_LEVEL=$(LOG_LEVEL) -D$(COMPASS_CHIP) -DUSE_$(CORRECTION_ALGO)" 

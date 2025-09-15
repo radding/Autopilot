@@ -1,0 +1,14 @@
+{
+  "compilerOptions": {
+    "paths": {
+      "autopilot-library": [
+        "library/dist"
+      ],
+      "messages": [
+        "messages/embedded",
+        "messages/typescript"
+      ]
+    }
+  },
+  "extends": "..\\..\\..\\cli\\tsconfig.app.json"
+}

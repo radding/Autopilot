@@ -1,0 +1,80 @@
+{
+    "name": "arduino-v2",
+    "$schema": "../../node_modules/nx/schemas/project-schema.json",
+    "sourceRoot": "ArduinoV2",
+    "projectType": "application",
+    "implicitDependencies": [
+        "messages"
+    ],
+    "targets": {
+        "copy-protos": {
+            "executor": "nx:run-commands",
+            "options": {
+                "command": "copy ..\\messages\\embedded\\* .",
+                "cwd": "ArduinoV2"
+            },
+            "dependsOn": [
+                "^build"
+            ]
+        },
+        "build": {
+            "executor": "nx:run-commands",
+            "options": {
+                "command": "arduino-cli compile -b arduino:esp32:nano_nora .",
+                "cwd": "ArduinoV2",
+                "forwardAllArgs": true
+            },
+            "dependsOn": [
+                "copy-protos"
+            ]
+        },
+        "build-clean": {
+            "executor": "nx:run-commands",
+            "options": {
+                "command": "arduino-cli compile --clean -b arduino:esp32:nano_nora . --build-property \"build.extra_flags=-DLOG_LEVEL=INFO|WARN|ERROR -DUSE_MPU9250_WE -DUSE_INSTR\"",
+                "cwd": "ArduinoV2",
+                "forwardAllArgs": true
+            }
+        },
+        "upload": {
+            "executor": "nx:run-commands",
+            "options": {
+                "command": "arduino-cli upload -p COM6 -b arduino:esp32:nano_nora .",
+                "cwd": "ArduinoV2",
+                "forwardAllArgs": true,
+                "args": [
+                    "-p={args.port}"
+                ]
+            },
+            "dependsOn": [
+                "build"
+            ]
+        },
+        "monitor": {
+            "executor": "nx:run-commands",
+            "options": {
+                "command": "arduino-cli monitor -p {args.port}",
+                "cwd": "ArduinoV2",
+                "tty": true
+            },
+            "dependsOn": [
+                "upload"
+            ]
+        },
+        "all": {
+            "executor": "nx:run-commands",
+            "options": {
+                "command": "echo 'Running all targets'",
+                "cwd": "ArduinoV2"
+            },
+            "dependsOn": [
+                "upload"
+            ]
+        }
+    },
+    "tags": [
+        "arduino",
+        "embedded",
+        "c++"
+    ]
+}

@@ -1,0 +1,24 @@
+#pragma once
+
+enum Actions
+{
+    READ_HEADING = 1,
+    HEAD_TO_HEADING,
+    CALIBRATE,
+    CALIBRATE_END,
+    CHANGE_NAME,
+    GET_CAPABILITIES,
+    SET_PIN,
+    SET_WIND_ANGLE,
+    GET_WIND_ANGLE,
+    GET_DATA,
+    STREAM_DATA,
+    STOP_STREAM,
+    SECRET_VALUE,
+    TOGGLE_PILOT,
+    REPORT_FREE_MEMORY,
+    PING,
+    PRINT,
+
+    NUMBER_OF_ELEMENTS
+};
