@@ -14,6 +14,7 @@ import { performWithSpinner } from './performWithTimeout';
 import winston from 'winston';
 import { GetDataV2, StreamDataV2 } from '@autopilot/library/src/cmdsv2/GetData';
 import { DeviceData } from 'library/src/messages/service_pb';
+import { CalibrateV2 } from '@autopilot/library/src/cmdsv2/Calibrate';
 
 const logger = winston.createLogger({
   level: 'info',
@@ -80,6 +81,23 @@ program
   .action(() => {
     program.outputHelp();
   });
+
+program
+  .command('calibrate')
+  .description('Calibrate the device')
+  .action(async () => {
+    if (!autopilotClient) {
+      console.log(chalk.red('Not connected'));
+      return;
+    }
+    await performWithSpinner(
+      async () => {
+        await autopilotClient.send(new CalibrateV2());
+      },
+    { spinnerText: 'Calibrating device' }
+  );
+});
+
 
 program
   .command('list <method>')

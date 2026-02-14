@@ -1,4 +1,4 @@
-import { PassThrough, Readable, Transform } from "stream";
+import { PassThrough, pipeline, Readable, Transform } from "stream";
 import { AnyCommandV2, CommandV2Return } from "./commands";
 import { MessageLevel, PrintContents, RequestType, Response, ResponseType } from "./messages/service_pb";
 import { Logger } from "winston";
@@ -24,13 +24,59 @@ const asyncResolver = <T>() => {
 	}
 }
 
-// class Stream extends Duplex {
-// 	writableObjectMode: boolean = true;
-// 	constructor() {
-// 		super();
-// 		this.writableObjectMode = true;
-// 	}
-// }
+function createCallbackToReadableStream(writer: Writer, logger: Logger) {
+  return new Readable({
+    objectMode: true,
+    read() {
+      writer.onMessage((data: Uint8Array) => {
+		const buff = Buffer.from(data);
+        logger.debug("readable stream", {data: buff.toString("hex")});
+        if (data) {
+          this.push(data);
+        }
+        
+      });
+    }
+  });
+}
+
+
+
+const getSizeDeliminatedProtoBuffer = (logger: Logger) => async function* sizeDelimitedProtoBuffer(dataStream: AsyncIterable<Uint8Array>): AsyncIterable<Uint8Array> {
+	let buff = new Uint8Array();
+	let written = 0;
+	let size = -1;
+	for await (let data of dataStream) {
+		const buffT = Buffer.from(data);
+		logger.debug("sizeDelimitedProtoBuffer", {data: buffT.toString("hex")});
+		if (data.length > 1) {
+			if (size === -1) {
+				size = data[0];
+				data = data.slice(1);
+				buff = new Uint8Array(size);
+				logger.debug("expected message of size", {size});
+			}
+			buff.set(data, written);
+			written += data.length;
+		}
+		if (written >= size) {
+			const buffT = Buffer.from(buff);
+			logger.debug("full message", {data: buffT.toString("hex")});
+			written = 0;
+			size = -1;
+			yield buff;
+			buff = new Uint8Array();
+		}
+	}
+}
+
+const getBufferedDecoder = (logger: Logger) => async function* bufferedDecoder(dataStream: AsyncIterable<Uint8Array>): AsyncIterable<Response> {
+	for await (const data of dataStream) {
+		const response = Response.deserializeBinary(data);
+		logger.debug("response buffered", {response: response.toObject()});
+		yield response;
+	}
+}
 
 
 export class Autopilot {
@@ -38,69 +84,62 @@ export class Autopilot {
 	private readonly streamWaiters: Map<number, Duplex> = new Map();
 
     constructor(private readonly writer: Writer, private readonly logger: Logger) {
-		let size = -1;
-		let buff: Uint8Array = new Uint8Array();
-		let written = 0;
-		this.writer.onMessage((data) => {
-			const buffT = Buffer.from(data);
-			this.logger.debug("onMessage", {data: buffT.toString("hex")});
-			if (size === -1) {
-				size = data[0];
-				data = data.slice(1);
-				buff = new Uint8Array(size);
-				this.logger.debug("expected message of size", {size});
-			}
-			if (data.length > 1) {
-				buff.set(data, written);
-				written += data.length;
-			}
-			if (written === size) {
-				const buffT = Buffer.from(buff);
-				this.logger.debug("full message", {data: buffT.toString("hex")});
-				const response = Response.deserializeBinary(buff);
-				if (response.getStreamid() > 0) {
-					this.logger.debug(`stream: ${JSON.stringify(response.toObject())}`, {service: "autopilot", streamid: response.getStreamid()});
-					const resolve = this.streamWaiters.get(response.getStreamid());
-					if (resolve) {
-						resolve.write(response);
-					}
-					else {
-						this.logger.error("No resolve for stream", response.getStreamid());
-					}
-					return;
-				}
-				this.logger.debug(`message: ${JSON.stringify(response.toObject())}`, {service: "autopilot", messageid: response.getMessageid()});
-				const resolve = this.messageWaiters.get(response.getMessageid());
-				if (resolve) {
-					resolve(response);
-				} else {
-					this.logger.error("No resolve for message", response.getMessageid());
-				}
-				size = -1;
-				written = 0;
-				buff = new Uint8Array();
-			}
-		});
+		const dataStream = createCallbackToReadableStream(this.writer, this.logger);
+		const sizeDelimitedProtoBuffer = getSizeDeliminatedProtoBuffer(this.logger);
+		const bufferedDecoder = getBufferedDecoder(this.logger);
+		const responseStream = this.responseStream.bind(this);
 
-		// this.stream(new StartTelemetryV2()).then((stream) => {
-		// 	stream.on("data", (data: PrintContents.AsObject) => {
-		// 		if (data.lvl === MessageLevel.INFO) {
-		// 			this.logger.info(data.message, {service: "autopilot"});
-		// 		} else if (data.lvl === MessageLevel.WARN) {
-		// 			this.logger.warn(data.message, {service: "autopilot"});
-		// 		} else if (data.lvl === MessageLevel.ERROR) {
-		// 			this.logger.error(data.message, {service: "autopilot"});
-		// 		} else if (data.lvl === MessageLevel.DEBUG) {
-		// 			this.logger.debug(data.message, {service: "autopilot"});
-		// 		} else if (data.lvl === MessageLevel.TRACE) {
-		// 			this.logger.debug(data.message, {service: "autopilot"});
-		// 		}
-		// 		this.logger.silly("metrics", {service: "autopilot", freeMemory: data.freememory});
-		// 	}).on("end", () => {
-		// 		console.log("telemetry end");
-		// 	});
-		// });
+		pipeline(
+			dataStream, 
+			sizeDelimitedProtoBuffer, 
+			bufferedDecoder,
+			async function* (dataStream: AsyncIterable<Response>) {
+				for await (const data of dataStream) {
+					logger.debug("print stream", {response: data.toObject()});
+					yield data;
+				}
+			},
+			responseStream,
+			async function (dataStream: AsyncIterable<boolean>) {
+				logger.debug("processing", {dataStream});
+			},
+		).on("error", (err) => {
+			this.logger.error("pipeline error", {err});
+		}).on("finish", () => {
+			this.logger.debug("pipeline finished");
+		}).on("end", () => {
+			this.logger.debug("pipeline ended");
+		});
     }
+
+	async *responseStream(dataStream: AsyncIterable<Response>): AsyncIterable<boolean> {
+		this.logger.debug("responseStream");
+		for await (const data of dataStream) {
+			this.logger.debug("resolving", {response: data.toObject()});
+			if (data.getStreamid() > 0) {
+				const resolve = this.streamWaiters.get(data.getStreamid());
+				if (resolve) {
+					resolve.write(data);
+					yield true;
+				}
+				else {
+					this.logger.error("No resolve for stream", data.getStreamid());
+					yield false;
+				}
+			}
+			else {
+				const resolve = this.messageWaiters.get(data.getMessageid());
+				if (resolve) {
+					resolve(data);
+					yield true;
+				}
+				else {
+					this.logger.error("No resolve for message", data.getMessageid());
+					yield false;
+				}
+			}
+		}
+	}
 
 	public async send<
 		TCommand extends AnyCommandV2

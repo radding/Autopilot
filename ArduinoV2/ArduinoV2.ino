@@ -13,12 +13,13 @@
 #include <FastIMU.h>
 #include <Wire.h>
 #include "Madgwick.h"
+#include "statemanagement.h"
+#include "communication.h"
 #define IMU_ADDRESS 0x68
 
 Preferences prefs;
 uint32_t timer = millis();
 MPU9255 IMU;
-AutopilotState state = AutopilotState_Standby;
 
 BLEService compassService("f23bdd1c-a520-457b-8ea9-4aeaa7045938");
 BLECharacteristic characteristic("20822af1-4c2b-4157-b629-6f59d52d7f29", BLERead | BLENotify | BLEBroadcast | BLEWrite, 2048);
@@ -31,7 +32,7 @@ unsigned char CAPABILITES = 0;
 char name[255] = "Autopilot";
 
 pb_istream_s pb_in = as_pb_istream(Serial);
-pb_ostream_s pb_out = as_pb_ostream(Serial);
+// pb_ostream_s pb_out = as_pb_ostream(Serial);
 
 Adafruit_GPS GPS(&Serial1);
 uint32_t streamID = 0;
@@ -103,10 +104,6 @@ void loop()
     }
     handleRequest(request);
   }
-  else
-  {
-    delay(100);
-  }
   // Stream data
 }
 
@@ -138,6 +135,9 @@ void handleRequest(Request request)
   case RequestType::RequestType_STOP_STREAM:
     // handleStopStream(request, response);
     break;
+  case RequestType::RequestType_CALIBRATE:
+    handleCalibrate(request, response);
+    break;
   default:
     // Serial.write(ResponseType::ERROR);
     break;
@@ -155,10 +155,10 @@ void streamData()
   sendResponse(response);
 }
 
-void sendResponse(Response response)
-{
-  pb_encode_ex(&pb_out, Response_fields, &response, PB_ENCODE_DELIMITED);
-}
+// void sendResponse(Response response)
+// {
+//   pb_encode_ex(&pb_out, Response_fields, &response, PB_ENCODE_DELIMITED);
+// }
 
 void handleStreamData(Request request, Response &response)
 {
@@ -176,6 +176,37 @@ void handleHeadToHeading(Request request, Response &response)
   response.which_message = Response_empty_tag;
   response.message.empty = Empty_init_zero;
   targetHeading = request.message.heading.heading;
+}
+
+void handleCalibrate(Request request, Response &response)
+{
+  response.type = ResponseType::ResponseType_CALIBRATE_FINISHED;
+  response.which_message = Response_empty_tag;
+  streamID = request.streamID;
+  is_streaming = true;
+  setState(AutopilotState_Calibrating);
+  calibrate(NULL);
+  response.message.empty = Empty_init_zero;
+}
+
+void calibrate(void *h)
+{
+  if (CAPABILITES & HAS_COMPASS)
+  {
+    IMU.calibrateAccelGyro(&calib);
+    IMU.calibrateMag(&calib);
+  }
+  setState(AutopilotState_Standby);
+  is_streaming = false;
+  streamID = 0;
+  // vTaskDelete(NULL);
+}
+
+void handleCalibrateEnd(Request request, Response &response)
+{
+  response.type = ResponseType::ResponseType_Pong;
+  response.which_message = Response_empty_tag;
+  response.message.empty = Empty_init_zero;
 }
 
 void handleIdentify(Request request, Response &response)
@@ -198,7 +229,7 @@ void handleCapabilities(Request request, Response &response)
   capabilities.magnetic = CAPABILITES & HAS_COMPASS;
   capabilities.gps = CAPABILITES & HAS_GPS;
   capabilities.freeMemory = ESP.getFreeHeap();
-  capabilities.state = state;
+  getState(capabilities.state);
 
   response.type = ResponseType::ResponseType_CapabilitesResult;
   response.which_message = Response_Capabilites_tag;
@@ -240,6 +271,8 @@ void handleGetData(Request request, Response &response)
 void setup()
 {
   Serial.begin(9600);
+  initState();
+  initCommunication();
   Serial1.begin(9600, SERIAL_8N1, D5, D4);
   prefs.begin("autopilot");
   String defaultName = "Autopilot";
